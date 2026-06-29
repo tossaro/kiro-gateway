@@ -135,7 +135,8 @@ async def stream_kiro_to_anthropic(
     request_messages: Optional[list] = None,
     request_tools: Optional[list] = None,
     request_system: Optional[Any] = None,
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Generator for converting Kiro stream to Anthropic SSE format.
@@ -692,6 +693,21 @@ async def stream_kiro_to_anthropic(
             f"tool_blocks={len(tool_blocks)}, stop_reason={stop_reason}"
         )
         
+        # Log to dashboard
+        try:
+            from kiro.dashboard import log_usage
+            log_usage(
+                model=model, endpoint="/v1/messages",
+                prompt_tokens=input_tokens, completion_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+                duration_ms=0, status_code=200,
+                cache_read_tokens=upstream_cache_usage.get("cache_read_input_tokens", 0),
+                cache_creation_tokens=upstream_cache_usage.get("cache_creation_input_tokens", 0),
+                session_id=session_id
+            )
+        except Exception:
+            pass
+        
     except FirstTokenTimeoutError:
         raise
     except GeneratorExit:
@@ -725,7 +741,8 @@ async def collect_anthropic_response(
     auth_manager: "KiroAuthManager",
     request_messages: Optional[list] = None,
     request_tools: Optional[list] = None,
-    request_system: Optional[Any] = None
+    request_system: Optional[Any] = None,
+    session_id: Optional[str] = None
 ) -> dict:
     """
     Collect full response from Kiro stream in Anthropic format.
@@ -845,6 +862,21 @@ async def collect_anthropic_response(
         f"tool_calls={len(result.tool_calls)}, stop_reason={stop_reason}"
     )
     
+    # Log to dashboard
+    try:
+        from kiro.dashboard import log_usage
+        log_usage(
+            model=model, endpoint="/v1/messages",
+            prompt_tokens=input_tokens, completion_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            duration_ms=0, status_code=200,
+            cache_read_tokens=upstream_cache_usage.get("cache_read_input_tokens", 0),
+            cache_creation_tokens=upstream_cache_usage.get("cache_creation_input_tokens", 0),
+            session_id=session_id
+        )
+    except Exception:
+        pass
+    
     usage_payload: Dict[str, Any] = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens
@@ -873,7 +905,8 @@ async def stream_with_first_token_retry_anthropic(
     first_token_timeout: float = FIRST_TOKEN_TIMEOUT,
     request_messages: Optional[list] = None,
     request_tools: Optional[list] = None,
-    request_system: Optional[Any] = None
+    request_system: Optional[Any] = None,
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Streaming with automatic retry on first token timeout for Anthropic API.
@@ -934,6 +967,7 @@ async def stream_with_first_token_retry_anthropic(
             request_messages=request_messages,
             request_tools=request_tools,
             request_system=request_system,
+            session_id=session_id,
         ):
             yield chunk
     

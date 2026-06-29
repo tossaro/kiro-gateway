@@ -34,7 +34,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from loguru import logger
 
-from kiro.config import PROXY_API_KEY, PROFILE_ARN
+from kiro.config import PROXY_API_KEY, PROFILE_ARN, DEFAULT_MAX_INPUT_TOKENS
 from kiro.models_anthropic import (
     AnthropicMessagesRequest,
     AnthropicCountTokensRequest,
@@ -145,7 +145,16 @@ async def messages(
     Raises:
         HTTPException: On validation or API errors
     """
-    logger.info(f"Request to /v1/messages (model={request_data.model}, stream={request_data.stream})")
+    logger.info(f"Request to /v1/messages (model={request_data.model}, stream={request_data.stream}, metadata={request_data.metadata})")
+
+    # Extract session_id from metadata.user_id JSON
+    _session_id = None
+    if request_data.metadata and request_data.metadata.get("user_id"):
+        try:
+            _meta = json.loads(request_data.metadata["user_id"])
+            _session_id = _meta.get("session_id")
+        except (json.JSONDecodeError, TypeError):
+            pass
     
     if anthropic_version:
         logger.debug(f"Anthropic-Version header: {anthropic_version}")
@@ -457,6 +466,7 @@ async def messages(
                                     request_messages=messages_for_tokenizer,
                                     request_tools=tools_for_tokenizer,
                                     request_system=system_for_tokenizer,
+                                    session_id=_session_id,
                                 ):
                                     yield chunk
                             except GeneratorExit:
@@ -739,6 +749,33 @@ async def messages(
     else:
         system_for_tokenizer = request_data.system
     
+    # Pre-flight context check: reject early at 90% to allow compact before unrecoverable
+    try:
+        token_stats = estimate_request_tokens(
+            messages=messages_for_tokenizer,
+            tools=tools_for_tokenizer,
+            system_prompt=system_for_tokenizer,
+            apply_claude_correction=True
+        )
+        estimated_tokens = token_stats["total_tokens"]
+        max_input = model_cache.get_max_input_tokens(request_data.model) if model_cache else DEFAULT_MAX_INPUT_TOKENS
+        if estimated_tokens > int(max_input * 0.90):
+            logger.warning(
+                f"HTTP 400 - POST /v1/messages - Pre-flight reject: {estimated_tokens}/{max_input} tokens ({estimated_tokens*100//max_input}%)"
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": f"prompt is too long: {estimated_tokens} tokens > {int(max_input * 0.90)} (90% of {max_input}). Please compact your conversation."
+                    }
+                }
+            )
+    except Exception as e:
+        logger.debug(f"Pre-flight token check failed (non-fatal): {e}")
+
     try:
         # Make request to Kiro API (for both streaming and non-streaming modes)
         # Important: we wait for Kiro response BEFORE returning StreamingResponse,
@@ -761,12 +798,14 @@ async def messages(
             
             # Try to parse JSON response from Kiro to extract error message
             error_message = error_text
+            error_reason = None
             try:
                 error_json = json.loads(error_text)
                 # Enhance Kiro API errors with user-friendly messages
                 from kiro.kiro_errors import enhance_kiro_error
                 error_info = enhance_kiro_error(error_json)
                 error_message = error_info.user_message
+                error_reason = error_info.reason
                 # Log original error for debugging
                 logger.debug(f"Original Kiro error: {error_info.original_message} (reason: {error_info.reason})")
             except (json.JSONDecodeError, KeyError):
@@ -782,12 +821,14 @@ async def messages(
                 debug_logger.flush_on_error(response.status_code, error_message)
             
             # Return error in Anthropic format
+            # Use "invalid_request_error" for context overflow so Claude Code triggers auto-compact
+            error_type_str = "invalid_request_error" if error_reason == "CONTENT_LENGTH_EXCEEDS_THRESHOLD" else "api_error"
             return JSONResponse(
                 status_code=response.status_code,
                 content={
                     "type": "error",
                     "error": {
-                        "type": "api_error",
+                        "type": error_type_str,
                         "message": error_message
                     }
                 }
@@ -815,6 +856,7 @@ async def messages(
                         request_messages=messages_for_tokenizer,
                         request_tools=tools_for_tokenizer,
                         request_system=system_for_tokenizer,
+                        session_id=_session_id,
                     ):
                         yield chunk
                 except GeneratorExit:
