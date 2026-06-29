@@ -58,6 +58,13 @@ def _init_db():
     except sqlite3.OperationalError:
         pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_log(session_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_names (
+            session_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -214,17 +221,19 @@ async def get_sessions(days: int = 7):
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""
-        SELECT session_id,
+        SELECT u.session_id,
                COUNT(*) as requests,
-               SUM(prompt_tokens) as input_tokens,
-               SUM(completion_tokens) as output_tokens,
-               SUM(cost_usd) as cost_usd,
-               MIN(timestamp) as first_seen,
-               MAX(timestamp) as last_seen,
-               GROUP_CONCAT(DISTINCT model) as models
-        FROM usage_log
-        WHERE timestamp > ? AND session_id IS NOT NULL
-        GROUP BY session_id
+               SUM(u.prompt_tokens) as input_tokens,
+               SUM(u.completion_tokens) as output_tokens,
+               SUM(u.cost_usd) as cost_usd,
+               MIN(u.timestamp) as first_seen,
+               MAX(u.timestamp) as last_seen,
+               GROUP_CONCAT(DISTINCT u.model) as models,
+               sn.name as session_name
+        FROM usage_log u
+        LEFT JOIN session_names sn ON u.session_id = sn.session_id
+        WHERE u.timestamp > ? AND u.session_id IS NOT NULL
+        GROUP BY u.session_id
         ORDER BY last_seen DESC
     """, (since,)).fetchall()
     conn.close()
@@ -243,6 +252,23 @@ async def get_session_detail(session_id: str):
     """, (session_id,)).fetchall()
     conn.close()
     return JSONResponse([dict(r) for r in rows])
+
+
+@router.post("/api/usage/sessions/{session_id}/name")
+async def set_session_name(session_id: str, request: Request):
+    """Set a custom name for a session."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute(
+        "INSERT OR REPLACE INTO session_names (session_id, name, created_at) VALUES (?, ?, ?)",
+        (session_id, name, time.time())
+    )
+    conn.commit()
+    conn.close()
+    return JSONResponse({"session_id": session_id, "name": name})
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -306,7 +332,7 @@ tr.clickable:hover td { background: #27272a; }
 <div class="stats" id="stats"></div>
 <div class="chart-container"><h2>Tokens Over Time</h2><canvas id="chart" height="80"></canvas></div>
 <div class="models" id="models"></div>
-<div class="chart-container" id="sessions-section"><h2>Sessions</h2><div style="overflow-x:auto"><table id="sessions"><thead><tr><th>Session ID</th><th>Requests</th><th>In</th><th>Out</th><th>Cost</th><th>Last Active</th></tr></thead><tbody></tbody></table></div></div>
+<div class="chart-container" id="sessions-section"><h2>Sessions</h2><div style="overflow-x:auto"><table id="sessions"><thead><tr><th>Name</th><th>Session ID</th><th>Requests</th><th>In</th><th>Out</th><th>Cost</th><th>Last Active</th></tr></thead><tbody></tbody></table></div></div>
 <div class="chart-container"><h2>Recent Requests</h2><div style="overflow-x:auto"><table id="table"><thead><tr id="table-head"><th>Time</th><th>Model</th><th>Session</th><th>In</th><th>Out</th><th>Cost</th></tr></thead><tbody></tbody></table></div></div>
 <script>
 let chart;
@@ -317,6 +343,13 @@ if(filterSession){
   document.getElementById('title').innerHTML='<a href="/dashboard">⚡ Kiro Gateway</a><span class="session-badge">'+filterSession+'</span>';
   document.getElementById('sessions-section').style.display='none';
   document.getElementById('table-head').innerHTML='<th>Time</th><th>Model</th><th>In</th><th>Out</th><th>Cost</th>';
+  // Fetch session name
+  fetch('/api/usage/sessions?days=30').then(r=>r.json()).then(sessions=>{
+    const s=sessions.find(x=>x.session_id===filterSession);
+    if(s&&s.session_name){
+      document.getElementById('title').innerHTML='<a href="/dashboard">⚡ Kiro Gateway</a><span class="session-badge">'+s.session_name+' ('+filterSession.substring(0,8)+'…)</span>';
+    }
+  });
 }
 
 function fmt(n){return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'K':n.toString()}
@@ -416,9 +449,10 @@ function load(days){
     for(const s of sessions){
       const last=new Date(s.last_seen*1000).toLocaleString();
       const sid=s.session_id||'—';
-      shtml+=`<tr class="clickable" onclick="location.href='/dashboard?session_id=${sid}'"><td><code>${sid}</code></td><td>${s.requests}</td><td>${fmt(s.input_tokens)}</td><td>${fmt(s.output_tokens)}</td><td>$${(s.cost_usd||0).toFixed(4)}</td><td>${last}</td></tr>`;
+      const name=s.session_name||'';
+      shtml+=`<tr class="clickable" onclick="location.href='/dashboard?session_id=${sid}'"><td><strong>${name||'—'}</strong></td><td><code>${sid}</code></td><td>${s.requests}</td><td>${fmt(s.input_tokens)}</td><td>${fmt(s.output_tokens)}</td><td>$${(s.cost_usd||0).toFixed(4)}</td><td>${last}</td></tr>`;
     }
-    document.querySelector('#sessions tbody').innerHTML=shtml||'<tr><td colspan="6" style="color:#52525b">No session data yet</td></tr>';
+    document.querySelector('#sessions tbody').innerHTML=shtml||'<tr><td colspan="7" style="color:#52525b">No session data yet</td></tr>';
   });
 }
 load(1);
