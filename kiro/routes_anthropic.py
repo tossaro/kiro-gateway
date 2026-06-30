@@ -34,7 +34,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from loguru import logger
 
-from kiro.config import PROXY_API_KEY, PROFILE_ARN, DEFAULT_MAX_INPUT_TOKENS
+from kiro.config import PROXY_API_KEY, PROFILE_ARN, DEFAULT_MAX_INPUT_TOKENS, CONTEXT_COMPACT_THRESHOLD
 from kiro.models_anthropic import (
     AnthropicMessagesRequest,
     AnthropicCountTokensRequest,
@@ -749,7 +749,7 @@ async def messages(
     else:
         system_for_tokenizer = request_data.system
     
-    # Pre-flight context check: reject early at 90% to allow compact before unrecoverable
+    # Pre-flight context check: reject early at threshold to allow compact before unrecoverable
     try:
         token_stats = estimate_request_tokens(
             messages=messages_for_tokenizer,
@@ -759,7 +759,7 @@ async def messages(
         )
         estimated_tokens = token_stats["total_tokens"]
         max_input = model_cache.get_max_input_tokens(request_data.model) if model_cache else DEFAULT_MAX_INPUT_TOKENS
-        if estimated_tokens > int(max_input * 0.90):
+        if estimated_tokens > int(max_input * CONTEXT_COMPACT_THRESHOLD):
             logger.warning(
                 f"HTTP 400 - POST /v1/messages - Pre-flight reject: {estimated_tokens}/{max_input} tokens ({estimated_tokens*100//max_input}%)"
             )

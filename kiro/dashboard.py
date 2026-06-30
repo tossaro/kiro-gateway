@@ -256,16 +256,17 @@ async def get_session_detail(session_id: str):
 
 @router.post("/api/usage/sessions/{session_id}/name")
 async def set_session_name(session_id: str, request: Request):
-    """Set a custom name for a session."""
+    """Set a custom name for a session. Empty name clears it."""
     body = await request.json()
     name = body.get("name", "").strip()
-    if not name:
-        return JSONResponse({"error": "name is required"}, status_code=400)
     conn = sqlite3.connect(str(DB_PATH))
-    conn.execute(
-        "INSERT OR REPLACE INTO session_names (session_id, name, created_at) VALUES (?, ?, ?)",
-        (session_id, name, time.time())
-    )
+    if not name:
+        conn.execute("DELETE FROM session_names WHERE session_id = ?", (session_id,))
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO session_names (session_id, name, created_at) VALUES (?, ?, ?)",
+            (session_id, name, time.time())
+        )
     conn.commit()
     conn.close()
     return JSONResponse({"session_id": session_id, "name": name})
@@ -316,6 +317,7 @@ td { color: #d4d4d8; }
 td code { font-size: 0.75rem; color: #a78bfa; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: #27272a; }
+td[style*="cursor:text"]:hover { background: #3f3f46 !important; border-radius: 4px; }
 .controls { margin-bottom: 20px; display: flex; gap: 8px; }
 .controls button { background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
 .controls button.active { background: #7c3aed; border-color: #7c3aed; }
@@ -450,10 +452,17 @@ function load(days){
       const last=new Date(s.last_seen*1000).toLocaleString();
       const sid=s.session_id||'—';
       const name=s.session_name||'';
-      shtml+=`<tr class="clickable" onclick="location.href='/dashboard?session_id=${sid}'"><td><strong>${name||'—'}</strong></td><td><code>${sid}</code></td><td>${s.requests}</td><td>${fmt(s.input_tokens)}</td><td>${fmt(s.output_tokens)}</td><td>$${(s.cost_usd||0).toFixed(4)}</td><td>${last}</td></tr>`;
+      shtml+=`<tr class="clickable"><td onclick="event.stopPropagation();renameSession('${sid}',this)" style="cursor:text" title="Click to rename"><strong>${name||'—'}</strong></td><td onclick="location.href='/dashboard?session_id=${sid}'"><code>${sid}</code></td><td onclick="location.href='/dashboard?session_id=${sid}'">${s.requests}</td><td onclick="location.href='/dashboard?session_id=${sid}'">${fmt(s.input_tokens)}</td><td onclick="location.href='/dashboard?session_id=${sid}'">${fmt(s.output_tokens)}</td><td onclick="location.href='/dashboard?session_id=${sid}'">$${(s.cost_usd||0).toFixed(4)}</td><td onclick="location.href='/dashboard?session_id=${sid}'">${last}</td></tr>`;
     }
     document.querySelector('#sessions tbody').innerHTML=shtml||'<tr><td colspan="7" style="color:#52525b">No session data yet</td></tr>';
   });
+}
+function renameSession(sid,td){
+  const current=td.innerText==='—'?'':td.innerText;
+  const name=prompt('Session name:',current);
+  if(name===null)return;
+  fetch('/api/usage/sessions/'+sid+'/name',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name||''})})
+    .then(r=>{if(r.ok){td.innerHTML='<strong>'+(name||'—')+'</strong>';}else{alert('Failed to save');}});
 }
 load(1);
 </script>

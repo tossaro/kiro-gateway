@@ -299,6 +299,9 @@ MODEL_CACHE_TTL: int = 3600
 # Default maximum number of input tokens
 DEFAULT_MAX_INPUT_TOKENS: int = 200000
 
+# Pre-flight context threshold — reject requests above this % to trigger auto-compact
+CONTEXT_COMPACT_THRESHOLD: float = float(os.getenv("CONTEXT_COMPACT_THRESHOLD", "0.65"))
+
 # ==================================================================================================
 # Tool Description Handling (Kiro API Limitations)
 # ==================================================================================================
