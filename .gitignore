@@ -23,6 +23,9 @@ build/
 debug_logs*/
 debug*.json
 
+# Database
+*.db
+
 # Project-specific
 _notes/
 requests/
