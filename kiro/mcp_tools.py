@@ -133,7 +133,8 @@ async def call_kiro_mcp_api(
         "params": {
             "name": "web_search",
             "arguments": {"query": query}
-        }
+        },
+        "profileArn": auth_manager.profile_arn or ""
     }
     
     # Log MCP request
@@ -151,6 +152,7 @@ async def call_kiro_mcp_api(
         headers = {
             "Authorization": f"Bearer {token}",
             "x-amzn-codewhisperer-optout": "false",
+            "x-amzn-codewhisperer-profile-arn": auth_manager.profile_arn or "",
             "Content-Type": "application/json"
         }
         
@@ -161,7 +163,7 @@ async def call_kiro_mcp_api(
             response = await client.post(mcp_url, json=mcp_request, headers=headers)
             
             if response.status_code != 200:
-                logger.error(f"MCP API error: {response.status_code}")
+                logger.error(f"MCP API error: {response.status_code}, body: {response.text[:500]}")
                 return None, None
             
             mcp_response = response.json()

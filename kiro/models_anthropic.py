@@ -225,7 +225,7 @@ class AnthropicTool(BaseModel):
     type: Optional[str] = None
     
     # Common fields
-    name: str
+    name: Optional[str] = None
     description: Optional[str] = None
     input_schema: Optional[Dict[str, Any]] = None  # Now optional for server-side tools
     
