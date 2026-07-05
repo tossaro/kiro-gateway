@@ -112,6 +112,7 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("PROXY_API_KEY", "test_proxy_key_12345")
     monkeypatch.setenv("PROFILE_ARN", "arn:aws:codewhisperer:us-east-1:123456789:profile/test")
     monkeypatch.setenv("KIRO_REGION", "us-east-1")
+    monkeypatch.delenv("KIRO_API_REGION", raising=False)
     return {
         "REFRESH_TOKEN": "test_refresh_token_abcdef",
         "PROXY_API_KEY": "test_proxy_key_12345",

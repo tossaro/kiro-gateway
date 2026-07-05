@@ -145,11 +145,19 @@ async def get_models(request: Request):
         available_model_ids = account.model_resolver.get_available_models()
     
     # Build OpenAI-compatible model list
+    # Get model cache for token limits
+    if request.app.state.account_system:
+        account = request.app.state.account_manager.get_first_account()
+    else:
+        account = request.app.state.account_manager.get_first_account()
+    model_cache = account.model_cache if account else None
+
     openai_models = [
         OpenAIModel(
             id=model_id,
             owned_by="anthropic",
-            description="Claude model via Kiro API"
+            description="Claude model via Kiro API",
+            context_length=model_cache.get_max_input_tokens(model_id) if model_cache else None
         )
         for model_id in available_model_ids
     ]
@@ -177,6 +185,15 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
         HTTPException: On validation or API errors
     """
     logger.info(f"Request to /v1/chat/completions (model={request_data.model}, stream={request_data.stream})")
+    
+    # Extract session_id from 'user' field (OpenAI standard for client identification)
+    _session_id = request_data.user or None
+    
+    # Fallback: use User-Agent as client identifier when no user field provided
+    if not _session_id:
+        user_agent = request.headers.get("user-agent", "")
+        if user_agent:
+            _session_id = user_agent
     
     # Note: prepare_new_request() and log_request_body() are now called by DebugLoggerMiddleware
     # This ensures debug logging works even for requests that fail Pydantic validation (422 errors)
@@ -389,7 +406,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
                                     auth_manager=auth_manager,
                                     initial_response=response,
                                     request_messages=messages_for_tokenizer,
-                                    request_tools=tools_for_tokenizer
+                                    request_tools=tools_for_tokenizer,
+                                    session_id=_session_id
                                 ):
                                     yield chunk
                             except GeneratorExit:
@@ -429,7 +447,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
                             model_cache,
                             auth_manager,
                             request_messages=messages_for_tokenizer,
-                            request_tools=tools_for_tokenizer
+                            request_tools=tools_for_tokenizer,
+                            session_id=_session_id
                         )
                         
                         await http_client.close()
@@ -685,7 +704,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
                         auth_manager=auth_manager,
                         initial_response=response,
                         request_messages=messages_for_tokenizer,
-                        request_tools=tools_for_tokenizer
+                        request_tools=tools_for_tokenizer,
+                        session_id=_session_id
                     ):
                         yield chunk
                 except GeneratorExit:
@@ -731,7 +751,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
                 model_cache,
                 auth_manager,
                 request_messages=messages_for_tokenizer,
-                request_tools=tools_for_tokenizer
+                request_tools=tools_for_tokenizer,
+                session_id=_session_id
             )
             
             await http_client.close()

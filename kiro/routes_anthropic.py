@@ -154,7 +154,14 @@ async def messages(
             _meta = json.loads(request_data.metadata["user_id"])
             _session_id = _meta.get("session_id")
         except (json.JSONDecodeError, TypeError):
-            pass
+            # user_id is not JSON - use it directly as session_id
+            _session_id = request_data.metadata["user_id"]
+    
+    # Fallback: use User-Agent as client identifier when no session_id provided
+    if not _session_id:
+        user_agent = request.headers.get("user-agent", "")
+        if user_agent:
+            _session_id = user_agent
     
     if anthropic_version:
         logger.debug(f"Anthropic-Version header: {anthropic_version}")
@@ -162,6 +169,38 @@ async def messages(
     # Note: prepare_new_request() and log_request_body() are now called by DebugLoggerMiddleware
     # This ensures debug logging works even for requests that fail Pydantic validation (422 errors)
     
+    # Extract system role messages from messages array (OpenAI-style compatibility)
+    # Move them to the top-level 'system' field as per Anthropic spec
+    system_messages_inline = [msg for msg in request_data.messages if msg.role == "system"]
+    if system_messages_inline:
+        # Build system text from inline system messages
+        inline_system_parts = []
+        for msg in system_messages_inline:
+            if isinstance(msg.content, str):
+                inline_system_parts.append(msg.content)
+            elif isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        inline_system_parts.append(block.get("text", ""))
+                    elif hasattr(block, "type") and block.type == "text":
+                        inline_system_parts.append(getattr(block, "text", ""))
+        
+        inline_system_text = "\n\n".join(inline_system_parts)
+        
+        # Merge with existing system prompt if present
+        if request_data.system:
+            if isinstance(request_data.system, str):
+                request_data.system = request_data.system + "\n\n" + inline_system_text
+            elif isinstance(request_data.system, list):
+                from kiro.models_anthropic import SystemContentBlock
+                request_data.system.append(SystemContentBlock(type="text", text=inline_system_text))
+        else:
+            request_data.system = inline_system_text
+        
+        # Remove system messages from the messages array
+        request_data.messages = [msg for msg in request_data.messages if msg.role != "system"]
+        logger.debug(f"Extracted {len(system_messages_inline)} inline system message(s) to top-level system field")
+
     # Check for truncation recovery opportunities
     from kiro.truncation_state import get_tool_truncation, get_content_truncation
     from kiro.truncation_recovery import generate_truncation_tool_result, generate_truncation_user_message
@@ -515,6 +554,7 @@ async def messages(
                             request_messages=messages_for_tokenizer,
                             request_tools=tools_for_tokenizer,
                             request_system=system_for_tokenizer,
+                            session_id=_session_id,
                         )
                         
                         await http_client.close()
@@ -906,6 +946,7 @@ async def messages(
                 request_messages=messages_for_tokenizer,
                 request_tools=tools_for_tokenizer,
                 request_system=system_for_tokenizer,
+                session_id=_session_id,
             )
             
             await http_client.close()

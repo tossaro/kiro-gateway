@@ -78,7 +78,8 @@ async def stream_kiro_to_openai_internal(
     first_token_timeout: float = FIRST_TOKEN_TIMEOUT,
     request_messages: Optional[list] = None,
     request_tools: Optional[list] = None,
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Internal generator for converting Kiro stream to OpenAI format.
@@ -99,7 +100,7 @@ async def stream_kiro_to_openai_internal(
         request_messages: Original request messages (for fallback token counting)
         request_tools: Original request tools (for fallback token counting)
         conversation_id: Stable conversation ID for truncation recovery (optional)
-        conversation_id: Stable conversation ID for truncation recovery (optional)
+        session_id: Client session identifier for usage tracking (optional)
     
     Yields:
         Strings in SSE format: "data: {...}\\n\\n" or "data: [DONE]\\n\\n"
@@ -414,6 +415,20 @@ async def stream_kiro_to_openai_internal(
         )
         
         yield f"data: {json.dumps(final_chunk, ensure_ascii=False)}\n\n"
+        
+        # Log usage to dashboard (covers both streaming and non-streaming paths)
+        try:
+            from kiro.dashboard import log_usage
+            log_usage(
+                model=model, endpoint="/v1/chat/completions",
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                duration_ms=0, status_code=200,
+                session_id=session_id
+            )
+        except Exception as log_err:
+            logger.debug(f"Failed to log usage to dashboard: {log_err}")
+        
         yield "data: [DONE]\n\n"
         
     except FirstTokenTimeoutError:
@@ -454,7 +469,8 @@ async def stream_kiro_to_openai(
     model_cache: "ModelInfoCache",
     auth_manager: "KiroAuthManager",
     request_messages: Optional[list] = None,
-    request_tools: Optional[list] = None
+    request_tools: Optional[list] = None,
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Generator for converting Kiro stream to OpenAI format.
@@ -470,6 +486,7 @@ async def stream_kiro_to_openai(
         auth_manager: Authentication manager
         request_messages: Original request messages (for fallback token counting)
         request_tools: Original request tools (for fallback token counting)
+        session_id: Client session identifier for usage tracking (optional)
     
     Yields:
         Strings in SSE format: "data: {...}\\n\\n" or "data: [DONE]\\n\\n"
@@ -477,7 +494,8 @@ async def stream_kiro_to_openai(
     async for chunk in stream_kiro_to_openai_internal(
         client, response, model, model_cache, auth_manager,
         request_messages=request_messages,
-        request_tools=request_tools
+        request_tools=request_tools,
+        session_id=session_id
     ):
         yield chunk
 
@@ -492,7 +510,8 @@ async def stream_with_first_token_retry(
     max_retries: int = FIRST_TOKEN_MAX_RETRIES,
     first_token_timeout: float = FIRST_TOKEN_TIMEOUT,
     request_messages: Optional[list] = None,
-    request_tools: Optional[list] = None
+    request_tools: Optional[list] = None,
+    session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Streaming with automatic retry on first token timeout.
@@ -557,7 +576,8 @@ async def stream_with_first_token_retry(
             auth_manager,
             first_token_timeout=first_token_timeout,
             request_messages=request_messages,
-            request_tools=request_tools
+            request_tools=request_tools,
+            session_id=session_id
         ):
             yield chunk
     
@@ -580,7 +600,8 @@ async def collect_stream_response(
     model_cache: "ModelInfoCache",
     auth_manager: "KiroAuthManager",
     request_messages: Optional[list] = None,
-    request_tools: Optional[list] = None
+    request_tools: Optional[list] = None,
+    session_id: Optional[str] = None
 ) -> dict:
     """
     Collect full response from streaming stream.
@@ -596,6 +617,7 @@ async def collect_stream_response(
         auth_manager: Authentication manager
         request_messages: Original request messages (for fallback token counting)
         request_tools: Original request tools (for fallback token counting)
+        session_id: Client session identifier for usage tracking (optional)
     
     Returns:
         Dictionary with full response in OpenAI chat.completion format
@@ -614,7 +636,8 @@ async def collect_stream_response(
         model_cache,
         auth_manager,
         request_messages=request_messages,
-        request_tools=request_tools
+        request_tools=request_tools,
+        session_id=session_id
     ):
         if not chunk_str.startswith("data:"):
             continue

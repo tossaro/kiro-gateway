@@ -157,7 +157,7 @@ KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
 # Default location: ~/.local/share/kiro-cli/data.sqlite3 (Linux/macOS)
 # or ~/.local/share/amazon-q/data.sqlite3 (amazon-q-developer-cli)
 _raw_cli_db_file = _get_raw_env_value("KIRO_CLI_DB_FILE") or os.getenv("KIRO_CLI_DB_FILE", "")
-KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file)) if _raw_cli_db_file else ""
+KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file).expanduser()) if _raw_cli_db_file else ""
 
 # Disable SQLite write-back (read-only mode)
 # When enabled, gateway will only read from kiro-cli database without modifying it.

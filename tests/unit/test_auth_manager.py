@@ -19,6 +19,11 @@ from kiro.config import TOKEN_REFRESH_THRESHOLD, get_aws_sso_oidc_url
 class TestKiroAuthManagerInitialization:
     """Tests for KiroAuthManager initialization."""
     
+    @pytest.fixture(autouse=True)
+    def _clear_api_region_env(self, monkeypatch):
+        """Ensure KIRO_API_REGION does not leak from .env into tests."""
+        monkeypatch.delenv("KIRO_API_REGION", raising=False)
+    
     def test_initialization_stores_credentials(self):
         """
         What it does: Verifies correct storage of credentials during initialization.
@@ -1268,6 +1273,11 @@ class TestKiroAuthManagerSsoRegionSeparation:
     SSO credentials from other regions (e.g., ap-southeast-1 for Singapore).
     The fix separates SSO region (for OIDC token refresh) from API region.
     """
+    
+    @pytest.fixture(autouse=True)
+    def _clear_api_region_env(self, monkeypatch):
+        """Ensure KIRO_API_REGION does not leak from .env into tests."""
+        monkeypatch.delenv("KIRO_API_REGION", raising=False)
     
     def test_api_region_uses_sso_region_as_fallback_when_no_profile_arn(self, temp_sqlite_db):
         """
@@ -3892,6 +3902,11 @@ class TestAPIRegionAutoDetectionSQLite:
     The gateway must auto-detect the correct API region from profile ARN in state table.
     """
     
+    @pytest.fixture(autouse=True)
+    def _clear_api_region_env(self, monkeypatch):
+        """Ensure KIRO_API_REGION does not leak from .env into auto-detection tests."""
+        monkeypatch.delenv("KIRO_API_REGION", raising=False)
+    
     def test_api_region_from_profile_arn_success(self, temp_sqlite_db_with_profile_arn):
         """
         What it does: Verifies successful extraction of API region from profile ARN.
@@ -4082,6 +4097,11 @@ class TestAPIRegionPriorityHierarchy:
     3. SSO region (fallback)
     4. Default region parameter (lowest)
     """
+    
+    @pytest.fixture(autouse=True)
+    def _clear_api_region_env(self, monkeypatch):
+        """Ensure KIRO_API_REGION does not leak from .env into priority tests."""
+        monkeypatch.delenv("KIRO_API_REGION", raising=False)
     
     def test_priority_env_var_highest(self, monkeypatch):
         """

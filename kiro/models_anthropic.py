@@ -183,11 +183,15 @@ class AnthropicMessage(BaseModel):
     Message in Anthropic format.
 
     Attributes:
-        role: Message role (user or assistant)
+        role: Message role (user, assistant, or system)
         content: Message content (string or list of content blocks)
+    
+    Note: 'system' role messages are accepted for compatibility with clients
+    that send system prompts inline (OpenAI-style). They are extracted and
+    moved to the top-level 'system' field during request processing.
     """
 
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant", "system"]
     content: Union[str, List[ContentBlock]]
 
     model_config = {"extra": "allow"}

@@ -351,7 +351,8 @@ class TestServerHostConfig:
         """
         print("Setup: Removing SERVER_HOST from environment...")
         
-        with patch.dict(os.environ, {}, clear=False):
+        with patch.dict(os.environ, {}, clear=False), \
+             patch("dotenv.load_dotenv"):
             if "SERVER_HOST" in os.environ:
                 del os.environ["SERVER_HOST"]
             

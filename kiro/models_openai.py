@@ -45,6 +45,7 @@ class OpenAIModel(BaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     owned_by: str = "anthropic"
     description: Optional[str] = None
+    context_length: Optional[int] = None
 
 
 class ModelList(BaseModel):
