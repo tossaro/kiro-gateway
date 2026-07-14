@@ -86,6 +86,7 @@ from kiro.model_resolver import ModelResolver
 from kiro.account_manager import AccountManager
 from kiro.routes_openai import router as openai_router
 from kiro.routes_anthropic import router as anthropic_router
+from kiro.routes_kiro_native import router as kiro_native_router
 from kiro.dashboard import router as dashboard_router
 from kiro.exceptions import validation_exception_handler
 from kiro.debug_middleware import DebugLoggerMiddleware
@@ -571,6 +572,15 @@ app.include_router(openai_router)
 
 # Anthropic-compatible API: /v1/messages
 app.include_router(anthropic_router)
+
+# Kiro-CLI Native Protocol Proxy (transparent proxy with usage logging)
+# Registered without prefix because kiro-cli POSTs directly to "/"
+# No conflict with OpenAI's GET "/" health check (different HTTP method)
+app.include_router(kiro_native_router, prefix="/kiro-native")
+
+# Also register at root for direct kiro-cli compatibility
+# kiro-cli sends POST / with x-amz-target header
+app.include_router(kiro_native_router)
 
 # Usage Dashboard
 app.include_router(dashboard_router)

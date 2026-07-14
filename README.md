@@ -60,6 +60,7 @@ Made with ❤️ by [@Jwadow](https://github.com/jwadow)
 | 🔍 **Web Search** | Search the web for current information |
 | 🛠️ **Tool Calling** | Supports function calling |
 | 💬 **Full message history** | Passes complete conversation context |
+| 📊 **Kiro CLI Token Tracking** | Native proxy for kiro-cli with per-session usage logging |
 | 📡 **Streaming** | Full SSE streaming support |
 | 🔄 **Retry Logic** | Automatic retries on errors (403, 429, 5xx) |
 | 📋 **Extended model list** | Including versioned models |
@@ -503,6 +504,102 @@ Most VPN clients provide a local proxy server you can use:
 - **Corporate VPN** — Check your IT department for proxy settings
 
 Leave `VPN_PROXY_URL` empty (default) if you don't need proxy support.
+
+---
+
+## 📊 Kiro CLI Token Tracking
+
+Track token usage from `kiro-cli` sessions through the same dashboard and database used by Cursor, Cline, and other tools.
+
+### How It Works
+
+```
+kiro-cli → kiro-gateway (transparent proxy) → runtime.us-east-1.kiro.dev
+                 ↓
+    Taps the AWS Event Stream response
+    Counts output tokens (tiktoken)
+    Derives input tokens (contextUsagePercentage)
+    Logs to usage.db with session UUID
+                 ↓
+         Same dashboard as /v1/messages
+```
+
+The gateway acts as a transparent proxy — kiro-cli doesn't know it's being tracked. Requests are forwarded unchanged, responses stream back in real-time with no added latency.
+
+### Setup
+
+**1. Configure kiro-cli to route through the gateway:**
+
+```bash
+kiro-cli settings api.codewhisperer.service '{"endpoint": "http://localhost:8000", "region": "us-east-1"}'
+kiro-cli settings api.krs.service '{"endpoint": "http://localhost:8000", "region": "us-east-1"}'
+```
+
+**2. Start a new kiro-cli session:**
+
+```bash
+kiro-cli chat
+```
+
+That's it. All LLM calls are now logged to `usage.db` and visible on the dashboard.
+
+### What Gets Tracked
+
+| Data | Source |
+|------|--------|
+| Input tokens | Derived from `contextUsagePercentage` × model context window |
+| Output tokens | Counted via tiktoken (text + tool use payloads) |
+| Session ID | `conversationId` from request body (UUID per session) |
+| Duration | Request start → stream complete |
+| Cost | Calculated using Anthropic pricing tiers |
+
+### What Gets Filtered
+
+- ✅ `GenerateAssistantResponse` — logged (LLM calls)
+- ❌ `SendTelemetryEvent` — proxied but NOT logged (noise)
+
+### Routing
+
+The proxy automatically routes requests to the correct upstream host based on `x-amz-target`:
+
+| Operation | Upstream |
+|-----------|----------|
+| `AmazonCodeWhispererStreamingService.*` | `runtime.{region}.kiro.dev` |
+| `AmazonCodeWhispererService.SendTelemetryEvent` | `q.{region}.amazonaws.com` |
+| `AmazonCodeWhispererService.*` (other) | `management.{region}.kiro.dev` |
+
+### Viewing Usage
+
+```bash
+# Dashboard (browser)
+open http://localhost:8000/dashboard
+
+# API
+curl http://localhost:8000/api/usage?days=7
+curl http://localhost:8000/api/usage/sessions?days=7
+
+# Name a session for reporting
+curl -X POST http://localhost:8000/api/usage/sessions/{session_id}/name \
+  -H "Content-Type: application/json" \
+  -d '{"name": "feature-migration"}'
+```
+
+### Reverting
+
+To stop routing kiro-cli through the gateway:
+
+```bash
+kiro-cli settings --delete api.codewhisperer.service
+kiro-cli settings --delete api.krs.service
+```
+
+### Notes
+
+- Token counts use the same estimation method as other gateway routes (tiktoken × 1.15 correction factor for Claude)
+- Input tokens are derived from `contextUsagePercentage` — same accuracy as the Cursor/Cline tracking
+- Each kiro-cli conversation gets its own `session_id` (UUID), which can be named for reporting
+- The gateway must be running before starting kiro-cli (`KeepAlive: true` in LaunchAgent recommended)
+- Existing sessions started before the endpoint change will continue to go directly to the API
 
 ---
 
