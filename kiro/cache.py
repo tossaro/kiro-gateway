@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from kiro.config import MODEL_CACHE_TTL, DEFAULT_MAX_INPUT_TOKENS
+from kiro.config import MODEL_CACHE_TTL, DEFAULT_MAX_INPUT_TOKENS, MODEL_CONTEXT_WINDOWS
 
 
 class ModelInfoCache:
@@ -136,6 +136,9 @@ class ModelInfoCache:
         Returns:
             Maximum number of input tokens or DEFAULT_MAX_INPUT_TOKENS
         """
+        # Check hardcoded known limits first (Kiro API doesn't expose these)
+        if model_id in MODEL_CONTEXT_WINDOWS:
+            return MODEL_CONTEXT_WINDOWS[model_id]
         model = self._cache.get(model_id)
         if model and model.get("tokenLimits"):
             return model["tokenLimits"].get("maxInputTokens") or DEFAULT_MAX_INPUT_TOKENS

@@ -1580,9 +1580,8 @@ def build_kiro_payload(
     if history:
         payload["conversationState"]["history"] = history
     
-    # Add profileArn
-    if profile_arn:
-        payload["profileArn"] = profile_arn
+    # Add profileArn (required by Kiro API)
+    payload["profileArn"] = profile_arn or "arn:aws:codewhisperer:us-east-1:397898146192:profile/NXW9GEQ3MMHG"
 
     # Payload size guard — auto-trim if enabled
     if AUTO_TRIM_PAYLOAD:
