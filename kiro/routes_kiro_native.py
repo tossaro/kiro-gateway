@@ -59,6 +59,8 @@ def _resolve_upstream(amz_target: str) -> str:
 
 # Cache last seen session_id for telemetry calls that don't have conversationState
 _last_session_id_cache: dict = {}
+# Cache last seen model per session (LLM requests don't include model name)
+_model_cache_per_session: dict = {}
 
 # Headers that should NOT be forwarded to upstream
 # (hop-by-hop headers + proxy-related)
@@ -104,6 +106,7 @@ async def proxy_generate_assistant_response(request: Request):
     
     # Extract session_id (conversationId) from request body
     session_id = "kiro-cli"
+    request_model = "auto"
     try:
         if body:
             import json as _json
@@ -115,6 +118,17 @@ async def proxy_generate_assistant_response(request: Request):
                 _last_session_id_cache["value"] = conv_id
             elif _last_session_id_cache.get("value"):
                 session_id = _last_session_id_cache["value"]
+            # Extract model from request (telemetry has it, LLM calls don't)
+            req_model = (
+                req_data.get("modelId")
+                or req_data.get("model")
+                or req_data.get("conversationState", {}).get("currentMessage", {}).get("modelId")
+            )
+            if req_model and req_model != "auto":
+                request_model = req_model
+                _model_cache_per_session[session_id] = req_model
+            elif session_id in _model_cache_per_session:
+                request_model = _model_cache_per_session[session_id]
     except Exception:
         if _last_session_id_cache.get("value"):
             session_id = _last_session_id_cache["value"]
@@ -208,7 +222,7 @@ async def proxy_generate_assistant_response(request: Request):
         full_content = []
         raw_text_buffer = []  # All decoded text for output token counting
         context_usage_pct = None
-        model_id = "auto"
+        model_id = request_model
         total_bytes = 0
 
         try:
@@ -299,18 +313,11 @@ def _log_native_usage(
         # Calculate input tokens from context usage percentage
         input_tokens = 0
         if context_usage_pct is not None and context_usage_pct > 0:
-            # Use the same logic as streaming_core.py
-            # Import model_cache from app state if available
-            model_cache = getattr(request.app.state, "model_cache", None)
-            if model_cache:
-                input_tokens, _, _, _ = calculate_tokens_from_context_usage(
-                    context_usage_pct, output_tokens, model_cache, model_id
-                )
-            else:
-                # Fallback: assume 200k context window (DEFAULT_MAX_INPUT_TOKENS)
-                from kiro.config import DEFAULT_MAX_INPUT_TOKENS
-                total_ctx_tokens = int((context_usage_pct / 100) * DEFAULT_MAX_INPUT_TOKENS)
-                input_tokens = max(0, total_ctx_tokens - output_tokens)
+            # Use per-model context window for accurate calculation
+            from kiro.config import MODEL_CONTEXT_WINDOWS, DEFAULT_MAX_INPUT_TOKENS
+            max_tokens = MODEL_CONTEXT_WINDOWS.get(model_id, DEFAULT_MAX_INPUT_TOKENS)
+            total_ctx_tokens = int((context_usage_pct / 100) * max_tokens)
+            input_tokens = max(0, total_ctx_tokens - output_tokens)
 
         total_tokens = input_tokens + output_tokens
 

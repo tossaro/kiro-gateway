@@ -299,6 +299,25 @@ MODEL_CACHE_TTL: int = 3600
 # Default maximum number of input tokens
 DEFAULT_MAX_INPUT_TOKENS: int = 200000
 
+# Known context window sizes per model (used for token estimation from contextUsagePercentage)
+# Models not listed here fall back to DEFAULT_MAX_INPUT_TOKENS
+MODEL_CONTEXT_WINDOWS: dict = {
+    "claude-opus-4.6": 1000000,
+    "claude-opus-4.7": 1000000,
+    "claude-opus-4.8": 1000000,
+    "claude-sonnet-4.6": 1000000,
+    "claude-sonnet-5": 1000000,
+    "claude-sonnet-4.5": 200000,
+    "claude-opus-4.5": 200000,
+    "claude-sonnet-4": 200000,
+    "claude-haiku-4.5": 200000,
+    "deepseek-3.2": 128000,
+    "glm-5": 128000,
+    "minimax-m2.1": 1000000,
+    "minimax-m2.5": 1000000,
+    "qwen3-coder-next": 128000,
+}
+
 # Pre-flight context threshold — reject requests above this % to trigger auto-compact
 CONTEXT_COMPACT_THRESHOLD: float = float(os.getenv("CONTEXT_COMPACT_THRESHOLD", "0.65"))
 
