@@ -256,13 +256,24 @@ async def get_session_detail(session_id: str):
 
 @router.post("/api/usage/sessions/{session_id}/name")
 async def set_session_name(session_id: str, request: Request):
-    """Set a custom name for a session. Empty name clears it."""
+    """Set a custom name for a session. Empty name clears it. Rejects duplicate names."""
     body = await request.json()
     name = body.get("name", "").strip()
     conn = sqlite3.connect(str(DB_PATH))
     if not name:
         conn.execute("DELETE FROM session_names WHERE session_id = ?", (session_id,))
     else:
+        # Reject if another session already has this name
+        existing = conn.execute(
+            "SELECT session_id FROM session_names WHERE name = ? AND session_id != ?",
+            (name, session_id)
+        ).fetchone()
+        if existing:
+            conn.close()
+            return JSONResponse(
+                {"error": "duplicate", "message": f"Name '{name}' already used by session {existing[0][:12]}"},
+                status_code=409
+            )
         conn.execute(
             "INSERT OR REPLACE INTO session_names (session_id, name, created_at) VALUES (?, ?, ?)",
             (session_id, name, time.time())
