@@ -142,14 +142,17 @@ class UsageLoggingMiddleware(BaseHTTPMiddleware):
 # --- API Endpoints ---
 
 @router.get("/api/usage")
-async def get_usage(days: int = 7):
+async def get_usage(days: float = 7, since: int = 0):
     """Get usage data for the dashboard."""
-    since = time.time() - (days * 86400)
+    if since > 0:
+        since_ts = since
+    else:
+        since_ts = time.time() - (days * 86400)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT * FROM usage_log WHERE timestamp > ? ORDER BY timestamp DESC",
-        (since,)
+        (since_ts,)
     ).fetchall()
     conn.close()
 
