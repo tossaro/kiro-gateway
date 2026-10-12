@@ -594,7 +594,12 @@ UVICORN_LOG_CONFIG = {
     "disable_existing_loggers": False,
     "handlers": {
         "default": {
-            "class": "main.InterceptHandler",
+            # Reference the class object directly via the "()" key. A string
+            # "class": "main.InterceptHandler" makes logging.dictConfig import
+            # the top-level "main" module by name, which fails in a Nuitka/
+            # frozen build (no importable "main") → "Unable to configure
+            # handler 'default'". The callable form resolves without import.
+            "()": InterceptHandler,
         },
     },
     "loggers": {
@@ -762,9 +767,12 @@ if __name__ == "__main__":
     
     logger.info(f"Starting Uvicorn server on {final_host}:{final_port}...")
     
-    # Use string reference to avoid double module import
+    # Pass the app OBJECT (not "main:app"): a string import target forces
+    # uvicorn to import a module named "main", which does not exist in a
+    # Nuitka/frozen build ("Could not import module 'main'"). We don't use
+    # reload/workers here, so the object form is fully equivalent. [GATEWAY]
     uvicorn.run(
-        "main:app",
+        app,
         host=final_host,
         port=final_port,
         log_config=UVICORN_LOG_CONFIG,

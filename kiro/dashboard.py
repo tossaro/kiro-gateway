@@ -6,6 +6,8 @@ Usage Dashboard - Token usage logging and visualization for Kiro Gateway.
 import sqlite3
 import time
 import json
+import os
+import sys
 from pathlib import Path
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -13,7 +15,39 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import StreamingResponse
 from loguru import logger
 
-DB_PATH = Path(__file__).parent / "usage.db"
+
+def _resolve_db_path() -> Path:
+    """Resolve a WRITABLE, PERSISTENT location for the usage DB.
+
+    ``Path(__file__).parent`` fails in a compiled build (read-only/non-existent
+    unpack dir), and in a Nuitka *onefile* build ``sys.executable`` points at an
+    EPHEMERAL temp unpack dir that is deleted on exit — so the DB must not live
+    there. Resolution order (first writable wins):
+      1. GATEWAY_DATA_DIR env override (installer sets this in the launchd plist).
+      2. Current working directory (installer sets WorkingDirectory=install dir).
+      3. ~/.kiro/kiro-gateway (stable per-user fallback).
+    """
+    candidates = []
+    override = os.getenv("GATEWAY_DATA_DIR")
+    if override:
+        candidates.append(Path(override).expanduser())
+    # CWD is the launchd WorkingDirectory (stable install dir) in production.
+    candidates.append(Path.cwd())
+    candidates.append(Path.home() / ".kiro" / "kiro-gateway")
+    for base in candidates:
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            if os.access(base, os.W_OK):
+                return base / "usage.db"
+        except OSError:
+            continue
+    # Last resort: home fallback (created above in the loop normally).
+    fallback = Path.home() / ".kiro" / "kiro-gateway"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback / "usage.db"
+
+
+DB_PATH = _resolve_db_path()
 
 router = APIRouter()
 
